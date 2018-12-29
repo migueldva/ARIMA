@@ -1,0 +1,233 @@
+---
+title: "OMA's time series analysis"
+author: "Miguel Angel Davila"
+date: "December 27, 2018"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE, warning = F}
+library(readxl)
+library(tidyverse)
+library(reshape2)
+library(forecast)
+library(xts)
+library(polynom)
+library(knitr)
+library(extrafont)
+library(kableExtra)
+
+opts_chunk$set(echo = TRUE)
+ttf_import(pattern = "segoeuil")
+windowsFonts(Segoeuil=windowsFont("Segoe UI Light"))
+
+path2 <- ""
+
+flights_domesc <- read_excel(path = paste0(path2,"/Base_File.xlsx"), sheet = 1)
+flights_int <- read_excel(path = paste0(path2,"/Base_File.xlsx"), sheet = 2)
+pax_domesc <- read_excel(path = paste0(path2,"/Base_File.xlsx"), sheet = 3)
+pax_int <- read_excel(path = paste0(path2,"/Base_File.xlsx"), sheet = 4)
+
+convert_ts <- function(ts_name,
+                       type.1 = c("route", "airport", "airport_group"),
+                       type.2 = c("international", "domestic", "consolidated"),
+                       type.3 = c("passengers", "flights"),
+                       start.date = as.Date("2001-01-01", format = "%Y-%m-%d"),
+                       end.date = as.Date("2018-12-01", format = "%Y-%m-%d")){
+  
+  #Prepare the  desired data
+  if(type.3 == "passengers"){
+    data.aux.d <- pax_domesc
+    data.aux.i <- pax_int
+  } else if(type.3 == "flights") {
+    data.aux.d <- flights_domesc
+    data.aux.i <- flights_int
+  }
+  
+  
+  if(type.2 == "consolidated"){
+    data.aux <- rbind(data.aux.d, data.aux.i)
+  } else if (type.2 == "international"){
+    data.aux <- data.aux.i
+  } else if(type.2 == "domestic"){
+    data.aux <- data.aux.d
+  }
+  
+  if(type.1 == "route"){
+    ts_name.f <- strsplit(ts_name, split = "-")[[1]][1]
+    ts_name.t <- strsplit(ts_name, split = "-")[[1]][2]
+    aux.1 <- min(ts_name.f, ts_name.t)
+    aux.2 <- max(ts_name.f, ts_name.t)
+    ts_name <- paste0(aux.1,"-",aux.2)
+    if(ts_name.t < ts_name.t){
+      print(paste("Warning: variable name has been renamed to", ts_name))
+      }
+    ts <- data.aux %>% filter((`Origin (IATA)` == aux.1 & `Destination (IATA)` == aux.2) |
+                              (`Origin (IATA)` == aux.2 & `Destination (IATA)` == aux.1))
+    
+  } else if(type.1 == "airport"){
+    ts <- data.aux %>% filter(`Origin (IATA)` == ts_name | `Destination (IATA)` == ts_name)
+    
+  } else if (type.1 == "airport_group"){
+    ts <- data.aux %>% filter(`Origin Airport Group` == ts_name | `Destination Airport Group` == ts_name)
+    ts.aux <- data.aux %>% filter(`Origin Airport Group` == ts_name & `Destination Airport Group` == ts_name)
+    ts <- rbind(ts, ts.aux)
+  }
+  
+  #create the series
+  ts <- ts %>% group_by(Year = Year) %>%
+        summarise_at(c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+                       "Oct", "Nov", "Dec"), .funs = sum) %>%
+        melt(id.vars = "Year")
+
+  #Structure the dates
+  start.date <- as.Date(start.date, format = "%Y-%m-%d")
+  end.date <- as.Date(end.date, format = "%Y-%m-%d")
+  ts$date <- as.factor(paste0(as.character(ts$Year), "-", as.character(ts$variable), "-01"))
+  ts$date <- as.Date(ts$date, format = "%Y-%b-%d")
+  
+  #Remove NA values
+  ts <- na.omit(ts)
+  
+  #Create time series object
+  ts <- xts(ts[,3], order.by = ts$date)
+  aux.txt <- paste0(as.character(start.date),"/",as.character(end.date))
+  ts <- ts[aux.txt]
+  #print(plot(ts, main = paste0(ts_name,"'s ", type.2, " ", type.3)))
+  return(ts)
+  
+}
+
+```
+
+#Forecasting 2009
+
+##Stabilizing mean and variance
+
+We begin by observing OMA's passenger traffic series, and by noticing that our data provides a seasonal and non-stationary time series. 
+
+
+```{r, echo=FALSE, fig.align="center", fig.height=3.75, fig.width=6.25, warning=F}
+oma.2009 <- convert_ts("OMA", type.1 = "airport_group", type.2 = "consolidated",
+                       type.3 = "passengers",
+                       start.date = "2001-01-01", end.date = "2008-12-01")
+
+ggplot(oma.2009) + geom_line(aes(x = index(oma.2009), y = coredata(oma.2009))) +
+  labs(title = "OMA's consolidated passengers (2001 - 2008)") +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "6 months", limits =   c(as.Date("2000-12-01", format = "%Y-%m-%d"), NA)) +
+  theme(panel.background = element_rect(fill = "whitesmoke"),
+         axis.title.x = element_blank(),
+         axis.title.y = element_blank(),
+         axis.text.x = element_text(angle = 90, hjust = 1),
+         axis.text = element_text(size = 8))
+```
+
+Therefore, several data transformation will be required in order to obtain an admissible model. We begin by transforming the series in order to stabilize variance (using Guerrero's method), where if we let $\{Z_t\}$ denote our time series we obtain:
+\begin{align*}
+  T(Z_t) := 
+  \begin{cases}
+    Z_t^\lambda \quad \text{if} \quad \lambda \neq 0 \\
+    \log (Z_t) \quad \text{if} \quad \lambda = 0
+  \end{cases}
+\end{align*}
+
+in this case the function `BoxCox.lambda` indicates that the appropriate transformation would be $\lambda = 0.03660744$. Now, we proceed to examine the order of seasonality in the series which can be easily seen on the transformed series' autocorrelation function - the peaks in the plot below indicate that we may be dealing with a seasonality of order 6 or 12. Thus, it will be necessary to select the amount of both regular and seasonal differences which minimizes the series' standard deviation. 
+
+
+```{r, echo=FALSE, fig.height=2.75, fig.width = 5.5, warning=F, fig.align = "center"}
+lambda <- BoxCox.lambda(oma.2009)
+t.oma.2009 <- oma.2009^lambda
+acf.t.oma.2009 <- acf(na.omit(diff(t.oma.2009, lag = 1)), lag.max = 30, main = "Transformed series' ACF")
+
+s <- matrix(ncol = 3, nrow = 3)
+S <- function(data, j, i, E){
+  if(i == 0 && j == 0){
+    s[j+1,i+1] <<- sd(data)
+  } else if (i != 0 && j == 0){
+    s[j+1,i+1] <<- sd(diff(data, lag = E, differences = i), na.rm = T)
+  } else if (i == 0 && j != 0){
+    s[j+1,i+1] <<- sd(diff(data, differences = j), na.rm = T)
+  } else 
+    s[j+1,i+1] <<- sd(diff(diff(data, lag = E, differences = i), differences = j), na.rm = T)
+}
+
+
+for (i in 0:2){
+  for(j in 0:2){
+    S(t.oma.2009, j, i, 6)
+  }
+}
+
+s_6 <- s
+s_6 <- as.data.frame(s_6, row.names = c("0","1","2"))
+names(s_6) <- c("0","1","2")
+
+#For E = 12
+for (i in 0:2){
+  for(j in 0:2){
+    S(t.oma.2009, j, i, 12)
+  }
+}
+
+s_12 <- s
+
+s_12 <- as.data.frame(s_12, row.names = c("0","1","2"))
+names(s_12) <- c("0","1","2")
+```
+
+
+Since, it is very difficult to identify the seasonality on pure visual inspection - we will analyze both scenarios and select the amount of both regular and seasonal differences which minimizes the series' standard deviation. Note that by differencing a series $\{Z_t\}$ we are doing the following operation: (where $B$ is the lag polynomial)
+\begin{align*}
+\nabla Z_t = (1 - B)Z_t = Z_t - Z_{t-1}
+\end{align*}
+
+
+```{r, echo = F, warning = F}
+kable(s_6, "latex", booktabs = T, caption = "Seasonal order = 6") %>% 
+      add_header_above(c("Regular differences" = 1, "Seasonal differences" = 3)) %>%
+      kable_styling(latex_options = "hold_position")
+
+s_12[2,2] <- cell_spec(s_12[2,2], format = "latex", background = "#FC795D")
+
+kable(s_12, "latex", booktabs = T, caption = "Seasonal order = 12", escape = F) %>% 
+      add_header_above(c("Regular differences", "Seasonal differences" = 3)) %>%
+      kable_styling(latex_options = "hold_position") 
+
+```
+
+Therefore, Table 1 & 2 indicate that the appropriate amount of differentiation in order to make our series stationary would be to take 1 regular and 1 seasonal difference of order 12; meaning that our transformed series would become: 
+$$W_t = \nabla \nabla_{12}(Z_t)^{\lambda} = \left(1 - B\right)\left(1- B^{12}\right)(Z_t)^{\lambda}$$
+
+
+```{r, echo=FALSE, fig.align="center", fig.height=2.75, fig.width = 5.5, warning=F}
+oma.2009.2 <- diff(diff(t.oma.2009, lag = 12, differences = 1), differences = 1) %>%
+              na.omit()
+
+ggplot(oma.2009.2) + geom_line(aes(x = index(oma.2009.2), y = coredata(oma.2009.2))) +
+  labs(title = "OMA's transformed series (2001 - 2008)") +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "6 months", limits =   c(as.Date("2000-12-01", format = "%Y-%m-%d"), NA)) +
+  theme(panel.background = element_rect(fill = "whitesmoke"),
+         axis.title.x = element_blank(),
+         axis.title.y = element_blank(),
+         axis.text.x = element_text(angle = 90, hjust = 1),
+         axis.text = element_text(size = 8))
+```
+
+
+##Identifying the model
+
+
+Now that we have a stationary series $W_t$, we can proceed to identify the appropriate ARIMA model. For this we'll visualize both the sample autocorrelation (ACF)  and sample partial autocorrelation function (PACF) of the series. 
+
+```{r, echo=FALSE, fig.align="center", fig.height=3.75, fig.width=6.25, warning=F}
+t.oma.2009.d <- diff(diff(t.oma.2009, lag = 12, differences = 1), differences = 1) %>%
+  na.omit()
+
+acf(t.oma.2009.d, lag.max = 35, main = "ACF for OMA's tranformed series", ylab = r_k)
+pacf(t.oma.2009.d, lag.max = 35, main = "PACF for OMA's tranformed series", ylab = phi_ii)
+```
+
+
+The main takeaways from the values observed is that we notice that $r_k$ is significantly different from zero when $k = 1,11,12$ and $\hat{\phi}_{i,i}$ is also significantly different from zero for $i = 1,5,11,12$. This then leads us to suggest a model of the type:
+$$(1 - \Phi B^E)W_t = (1 - \theta_1 B - \theta_E B^E)a_t$$
+
