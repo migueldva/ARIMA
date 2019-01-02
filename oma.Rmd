@@ -16,13 +16,8 @@ library(polynom)
 library(knitr)
 library(extrafont)
 library(kableExtra)
-
 opts_chunk$set(echo = TRUE)
-ttf_import(pattern = "segoeuil")
-windowsFonts(Segoeuil=windowsFont("Segoe UI Light"))
-
 path2 <- ""
-
 flights_domesc <- read_excel(path = paste0(path2,"/Base_File.xlsx"), sheet = 1)
 flights_int <- read_excel(path = paste0(path2,"/Base_File.xlsx"), sheet = 2)
 pax_domesc <- read_excel(path = paste0(path2,"/Base_File.xlsx"), sheet = 3)
@@ -79,7 +74,6 @@ convert_ts <- function(ts_name,
         summarise_at(c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
                        "Oct", "Nov", "Dec"), .funs = sum) %>%
         melt(id.vars = "Year")
-
   #Structure the dates
   start.date <- as.Date(start.date, format = "%Y-%m-%d")
   end.date <- as.Date(end.date, format = "%Y-%m-%d")
@@ -97,7 +91,6 @@ convert_ts <- function(ts_name,
   return(ts)
   
 }
-
 ```
 
 #Forecasting 2009
@@ -111,8 +104,7 @@ We begin by observing OMA's passenger traffic series, and by noticing that our d
 oma.2009 <- convert_ts("OMA", type.1 = "airport_group", type.2 = "consolidated",
                        type.3 = "passengers",
                        start.date = "2001-01-01", end.date = "2008-12-01")
-
-ggplot(oma.2009) + geom_line(aes(x = index(oma.2009), y = coredata(oma.2009))) +
+ggplot(oma.2009) + geom_line(aes(x = index(oma.2009), y = coredata(oma.2009)), color = "#E2A206") +
   labs(title = "OMA's consolidated passengers (2001 - 2008)") +
   scale_x_date(date_labels = "%b %Y", date_breaks = "6 months", limits =   c(as.Date("2000-12-01", format = "%Y-%m-%d"), NA)) +
   theme(panel.background = element_rect(fill = "whitesmoke"),
@@ -122,7 +114,7 @@ ggplot(oma.2009) + geom_line(aes(x = index(oma.2009), y = coredata(oma.2009))) +
          axis.text = element_text(size = 8))
 ```
 
-Therefore, several data transformation will be required in order to obtain an admissible model. We begin by transforming the series in order to stabilize variance (using Guerrero's method), where if we let $\{Z_t\}$ denote our time series we obtain:
+Therefore, several data transformations will be required in order to obtain an admissible model. We begin by transforming the series in order to stabilize the variance (using Guerrero's method), where if we let $\{Z_t\}$ denote our time series we obtain:
 \begin{align*}
   T(Z_t) := 
   \begin{cases}
@@ -138,7 +130,6 @@ in this case the function `BoxCox.lambda` indicates that the appropriate transfo
 lambda <- BoxCox.lambda(oma.2009)
 t.oma.2009 <- oma.2009^lambda
 acf.t.oma.2009 <- acf(na.omit(diff(t.oma.2009, lag = 1)), lag.max = 30, main = "Transformed series' ACF")
-
 s <- matrix(ncol = 3, nrow = 3)
 S <- function(data, j, i, E){
   if(i == 0 && j == 0){
@@ -150,27 +141,21 @@ S <- function(data, j, i, E){
   } else 
     s[j+1,i+1] <<- sd(diff(diff(data, lag = E, differences = i), differences = j), na.rm = T)
 }
-
-
 for (i in 0:2){
   for(j in 0:2){
     S(t.oma.2009, j, i, 6)
   }
 }
-
 s_6 <- s
 s_6 <- as.data.frame(s_6, row.names = c("0","1","2"))
 names(s_6) <- c("0","1","2")
-
 #For E = 12
 for (i in 0:2){
   for(j in 0:2){
     S(t.oma.2009, j, i, 12)
   }
 }
-
 s_12 <- s
-
 s_12 <- as.data.frame(s_12, row.names = c("0","1","2"))
 names(s_12) <- c("0","1","2")
 ```
@@ -183,16 +168,14 @@ Since, it is very difficult to identify the seasonality on pure visual inspectio
 
 
 ```{r, echo = F, warning = F}
-kable(s_6, "latex", booktabs = T, caption = "Seasonal order = 6") %>% 
-      add_header_above(c("Regular differences" = 1, "Seasonal differences" = 3)) %>%
+kable(s_6, "latex", booktabs = T, caption = "Seasonal order = 6", align = 'c') %>% 
+      add_header_above(c("Regular differences" = 1, "Seasonal differences" = 3), align = 'c') %>%
       kable_styling(latex_options = "hold_position")
-
-s_12[2,2] <- cell_spec(s_12[2,2], format = "latex", background = "#FC795D")
-
-kable(s_12, "latex", booktabs = T, caption = "Seasonal order = 12", escape = F) %>% 
-      add_header_above(c("Regular differences", "Seasonal differences" = 3)) %>%
+s_12 <- round(s_12, digits = 7)
+s_12[2,2] <- cell_spec(s_12[2,2], format = "latex", background = "#FC795D", align = "c")
+kable(s_12, "latex", booktabs = T, caption = "Seasonal order = 12", escape = F, align = 'c') %>% 
+      add_header_above(c("Regular differences", "Seasonal differences" = 3), align = 'c') %>%
       kable_styling(latex_options = "hold_position") 
-
 ```
 
 Therefore, Table 1 & 2 indicate that the appropriate amount of differentiation in order to make our series stationary would be to take 1 regular and 1 seasonal difference of order 12; meaning that our transformed series would become: 
@@ -202,8 +185,7 @@ $$W_t = \nabla \nabla_{12}(Z_t)^{\lambda} = \left(1 - B\right)\left(1- B^{12}\ri
 ```{r, echo=FALSE, fig.align="center", fig.height=2.75, fig.width = 5.5, warning=F}
 oma.2009.2 <- diff(diff(t.oma.2009, lag = 12, differences = 1), differences = 1) %>%
               na.omit()
-
-ggplot(oma.2009.2) + geom_line(aes(x = index(oma.2009.2), y = coredata(oma.2009.2))) +
+ggplot(oma.2009.2) + geom_line(aes(x = index(oma.2009.2), y = coredata(oma.2009.2)), color = "#E2A206") +
   labs(title = "OMA's transformed series (2001 - 2008)") +
   scale_x_date(date_labels = "%b %Y", date_breaks = "6 months", limits =   c(as.Date("2000-12-01", format = "%Y-%m-%d"), NA)) +
   theme(panel.background = element_rect(fill = "whitesmoke"),
@@ -219,15 +201,281 @@ ggplot(oma.2009.2) + geom_line(aes(x = index(oma.2009.2), y = coredata(oma.2009.
 
 Now that we have a stationary series $W_t$, we can proceed to identify the appropriate ARIMA model. For this we'll visualize both the sample autocorrelation (ACF)  and sample partial autocorrelation function (PACF) of the series. 
 
-```{r, echo=FALSE, fig.align="center", fig.height=3.75, fig.width=6.25, warning=F}
+```{r, echo=FALSE, fig.align="center", fig.height= 3.75, fig.width= 7.5, warning=F}
 t.oma.2009.d <- diff(diff(t.oma.2009, lag = 12, differences = 1), differences = 1) %>%
   na.omit()
-
-acf(t.oma.2009.d, lag.max = 35, main = "ACF for OMA's tranformed series", ylab = r_k)
-pacf(t.oma.2009.d, lag.max = 35, main = "PACF for OMA's tranformed series", ylab = phi_ii)
+par(mfrow = c(1, 2))
+acf(t.oma.2009.d, lag.max = 35, main = "ACF for OMA's tranformed series", ylab = "r_k", cex.lab= .9, cex.main = .8)
+pacf(t.oma.2009.d, lag.max = 35, main = "PACF for OMA's tranformed series", ylab = "phi_ii", cex.lab= .9, cex.main = .8)
+par(mfrow = c(1, 1))
 ```
 
 
-The main takeaways from the values observed is that we notice that $r_k$ is significantly different from zero when $k = 1,11,12$ and $\hat{\phi}_{i,i}$ is also significantly different from zero for $i = 1,5,11,12$. This then leads us to suggest a model of the type:
-$$(1 - \Phi B^E)W_t = (1 - \theta_1 B - \theta_E B^E)a_t$$
+The main takeaways from the observed values is that we notice that $r_k$ is significantly different from zero when $k = 1,11,12$ and $\hat{\phi}_{i,i}$ is also significantly different from zero for $i = 1,5,11,12$. This then leads us to suggest a model of the type:
+$$(1 - \Phi B^E)W_t = (1 - \theta_1 B - \theta_{E-1} B^{E-1} - \theta_{E} B^{E})a_t \quad \text{where} \quad E = 12,$$
 
+\newpage
+
+Comptuing the appropriate estimation in `R` we obtain the estimators with their respective 95\% confidence intervals:
+
+\begin{align*}
+  \hat{\Phi} &= -0.28238442 \implies (-0.5275117, \, -0.03725714)\\
+  \hat{\theta}_1 &= -0.28351584 \implies (-0.4737833, \, -0.09324838)\\
+  \hat{\theta}_{11} &= -0.04066709 \implies (-0.2482709, \, 0.16693673)\\
+  \hat{\theta}_{12} &= -0.48877706 \implies (-0.7426195, \, -0.23493457)
+\end{align*}
+
+Which leads to the following result:
+```{r, echo=FALSE, fig.align="center", fig.height=4, fig.width=6.75, warning=F}
+oma.2009.fit <- Arima(t.oma.2009, order = c(0,1,12), seasonal = list(order = c(1,1,0), period = 12), 
+                      fixed = c(NA, rep(0,9), NA, NA, NA), method = "CSS")
+
+aux <- data.frame(date = index(oma.2009), Series = coredata(oma.2009.fit$fitted), type = "Simulated")
+oma.2009.df <- data.frame(date = index(oma.2009), Series = coredata(t.oma.2009), type = "Observed")
+
+oma.2009.df <- rbind(oma.2009.df, aux)
+
+ggplot(oma.2009.df, aes(x = date, y = Series, color = type)) +
+  geom_line(aes(linetype = type)) +
+  labs(title = "Observed vs. Simulated") +
+  scale_color_manual(values = c("#E2A206", "#067DE2")) +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "6 months", limits =   c(as.Date("2000-12-01", format = "%Y-%m-%d"), NA)) +
+  theme(panel.background = element_rect(fill = "whitesmoke"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.text = element_text(size = 8))
+```
+
+
+##Veryfing model's assumptions
+
+1. **Residual mean is equal to zero**
+
+We have that the sample mean of the residuals $m(\hat{a}) = 0.00013$, and the standard deviation $\hat{\sigma_a} = 0.00256$. Therefore the ratio $\sqrt{N-d-p-(D+P)E}\times\frac{m(\hat{a})}{\hat{\sigma_a}} = 0.4365 < 2$, where $N = 96, \, d = 1,\, p = 0,\, D = 1\, P =1, \, E =12$, indicates that there is not enough evidence to support that the mean of the residuals is different from zero.
+
+2. **The residuals have constant variance**
+
+We can verify this visually by observing that the variance of the series $\{a_t\}$ doesn't change drastically throughout time, the plot below shows that there is no indication that the variance isn't constant.
+
+```{r, echo=FALSE, fig.align="center", fig.height=3.75, fig.width=6.25, warning=F, caption = 'Residuals'}
+oma.2009.fit$t_residuals <- oma.2009.fit$residuals[oma.2009.fit$residuals != 0]
+residual_df <- data.frame(t = 1:length(oma.2009.fit$t_residuals), residual = oma.2009.fit$t_residuals)
+
+ggplot(residual_df) + geom_line(aes(x = t, y = residual), color = "#E2A206") +
+  geom_hline(yintercept = 2*sd(oma.2009.fit$t_residuals), linetype="dashed", color = "#067DE2") +
+  geom_hline(yintercept = -2*sd(oma.2009.fit$t_residuals), linetype="dashed", color = "#067DE2") +
+  geom_hline(yintercept = 3*sd(oma.2009.fit$t_residuals), linetype="dashed", color = "#E83426") +
+  geom_hline(yintercept = -3*sd(oma.2009.fit$t_residuals), linetype="dashed", color = "#E83426") +
+  theme(panel.background = element_rect(fill = "whitesmoke"),
+        axis.text = element_text(size = 8))
+```
+
+
+3. **Residuals are mutually independent**
+
+For this we'll plot the residuals' ACF and if there are no autocorrelations significantly different than zero, we can therefore assume that all residuals are independent.
+
+```{r, echo=FALSE, fig.align="center", fig.height=3.75, fig.width=6.25, warning=F}
+acf(oma.2009.fit$t_residuals, main = "Residuals' ACF")
+```
+
+4. **Residuals follow a normal distribution**
+
+We verify this by plotting a histogram of the residuals and by observing the corresponding `qqplot`, which leads us to believe that the assumption is met.
+
+```{r, echo=FALSE, fig.align="center", fig.height=3.75, fig.width=6.25, warning=F}
+ggplot(residual_df, aes(x = residual)) + geom_histogram(aes(y = ..density..),
+                                                        breaks = seq(-.005, .005, by = .0008), 
+                                                        colour = "#E2A206", 
+                                                        fill = "#E2A206",
+                                                        alpha = 0.8,
+                                                        binwidth = 0.3) +
+  stat_function(fun = dnorm, args = list(mean = mean(residual_df$residual), 
+                                         sd = sd(residual_df$residual)),
+                color = "#067DE2", size = 1, linetype = "dashed") +
+  theme(panel.background = element_rect(fill = "whitesmoke"),
+        axis.text = element_text(size = 8))
+
+
+qqnorm(oma.2009.fit$t_residuals)
+qqline(oma.2009.fit$t_residuals)
+```
+
+5. **There aren't abnormal observations**
+
+This means that there shouldn't be any residual observations greater than $+/- 3$ the residual standard deviation. We can confirm this by observing the graph we plotted for the residual variance.
+
+##Forecasting
+
+Since we now have an admissible model for the series we can proceed to forecast OMA's 2009 passenger traffic. We will do this with two different methodologies, first by estimating the full year without knowing any of the true values of the series - which will lead to a greater estimation error, and second by doing a dynamic estimation - this means by updating the model as each month passes so the model can have greater information when making the forecasts.
+
+###Static estimation
+
+```{r, echo = F, warnings = F}
+oma.2009.static <- forecast(oma.2009.fit, h = 12, level = c(65,95))
+
+
+oma.2009.static.df <- data.frame(date = index(oma.2009), pax = coredata(t.oma.2009), type = "observed")
+preds.static <- data.frame(date =  seq.Date(from = as.Date("2009-01-01", format = "%Y - %m - %d"), 
+                                   by = "1 month", to = as.Date("2009-12-01", format = "%Y - %m - %d")),
+                  pax = oma.2009.static$mean, type = "predicted")
+oma.2009.static.df <- rbind(oma.2009.static.df, preds.static)
+
+
+###Transforming back the series 
+
+
+xi <- vector()
+xi[1] <- -1
+theta <- c(oma.2009.fit$coef[-13], rep(0,13))
+phi <- c(-1, rep(0,10), 0.717616, -0.717616, rep(0,10), 0.282384, -0.282384)
+
+
+for(i in 2:25){
+  xi[i] <- theta[i-1]
+  for (j in 1:(i-1)){
+    aux <- phi[j]*xi[i-j]
+  }
+  xi[i] <- xi[i] + aux
+}
+
+var.eh <- vector()
+var.eh[1] <- (xi[1]^2)*var(oma.2009.fit$t_residuals)
+for(i in 2:12){
+  var.eh[i] <- var.eh[i-1] + (xi[i]^2)*(var(oma.2009.fit$t_residuals))
+}
+
+
+c_lambda <- vector()
+aux.pred <- as.vector(preds.static$pax)
+for(i in 1:12){
+  aux.2 <- aux.pred[i]
+  c_lambda[i] <- (.5 + sqrt(1 - 2*lambda*(lambda - 1)*((1 + lambda*aux.2)^(-2))*var.eh[i])*0.5)^(1/lambda)
+}
+
+
+
+oma.2009.basis <- convert_ts("OMA", type.1 = "airport_group", type.2 = "consolidated",
+                       type.3 = "passengers",
+                       start.date = "2009-01-01", end.date = "2009-12-01")
+
+oma.2009.basis <- data.frame(date = index(oma.2009.basis), pax = coredata(oma.2009.basis), type = "observed")
+
+pred.df <- data.frame(date = oma.2009.basis$date, pred = as.vector(oma.2009.static$mean), 
+                      lower = as.vector(oma.2009.static$lower[,2]), upper = as.vector(oma.2009.static$upper[,2])) 
+
+pred.df[,-1] <- (pred.df[,-1]^(1/lambda))*c_lambda
+
+pred.df <- cbind(pred.df, pax = oma.2009.basis$pax)
+
+```
+
+
+The following plot shows how our forecasts fared for the year 2009 from a static prediciton perspective. Note that the shaded area depicts the confidence intervals with a level of 95\%, meaning that we can be 95\% sure that the true value would lie inside of the shaded area.
+
+```{r, echo=FALSE, fig.align="center", fig.height=3.25, fig.width=6, warning=F}
+ggplot(pred.df) +
+  geom_line(aes(x = date, y = pred), color = "#E2A206", size = 1.1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, x = date), alpha = 0.2, fill = "#E2A206") +
+  geom_line(aes(x = date, y = pax), color = "#067DE2", size = 1.1) +
+  geom_text(aes(x = as.Date("2009-02-01"), y = 1500000, label = "Forecast"), color = "#E2A206", size = 3) +
+  geom_text(aes(x = as.Date("2009-02-01"), y = 1450000, label = "Observed"), color = "#067DE2", size = 3) +
+  labs(x = "Date", y = "Passengers", title = "") +
+  theme(panel.background = element_rect(fill = "whitesmoke"),
+        axis.text = element_text(size = 8))
+```
+
+
+```{r, echo = F, warning = F}
+
+pred.df.2 <- read_excel(path = paste0(path2,"/pred.xlsx"))
+pred.df.2[,-c(1,6,7)] <- round(pred.df.2[,-c(1,6,7)], digits = 0) 
+pred.df.2[,c(6,7)] <- round(pred.df.2[,c(6,7)], digits = 2)
+pred.df.2[-13,1] <- as.character(oma.2009.basis$date)
+
+#names_spaced = c("Date", "Base case \\\ scenario", "Best case \\\ scenario", "Worst case \\\ scenario",
+                 #"Observed", "Base case \\\ vs observed", "Worst case \\\ vs observed")
+
+kable(pred.df.2, "latex", booktabs = T, caption = "Forecast summary", escape = F, align = 'c', linesep = "") %>% 
+       column_spec(c(1:7), width = "6em") %>%
+      kable_styling(latex_options = c("hold_position", "scale_down"))
+
+```
+
+
+
+We can see that our forecast clearly overestimates the passenger traffic for 2009, however the lower bound of the estimation predicts an almost exact estimation of the total passenger traffic for 2009. This way the model helps us notice that 2009 **was one of the most unlikely scenarios** for Mexican passenger traffic; also we can see that for May 2009 even the worst case scenario fails to predict the true value - this is a consqeunce of the flu outbreak which affected Mexico during that month and it is beyond the model's capabilities to predict such scenarios.
+
+###Dynamic estimation
+
+The following plot and table show how our forecasts fared from a dyanmic estimation perspective. 
+
+```{r,  echo=FALSE, fig.align="center", fig.height=3.25, fig.width=6, warning=F}
+
+oma.2009.basis <- convert_ts("OMA", type.1 = "airport_group", type.2 = "consolidated",
+                       type.3 = "passengers",
+                       start.date = "2009-01-01", end.date = "2009-12-01")
+
+t.oma.2009.update <- rbind(t.oma.2009, (convert_ts("OMA", type.1 = "airport_group", type.2 = "consolidated",
+                                                   type.3 = "passengers",
+                                                   start.date = "2009-01-01", end.date = "2009-12-01"))^lambda)
+
+oma.2009.fit.updated <- Arima(t.oma.2009.update["/2008"], model = oma.2009.fit)
+oma.2009.dynamic <- forecast(oma.2009.fit.updated, h = 1, level = 95)
+
+oma.2009.dynamic.df <- data.frame(mean = c(oma.2009.dynamic$mean,rep(0,11)),
+                                  lower_bound = c(oma.2009.dynamic$lower,rep(0,11)),
+                                  upper_bound = c(oma.2009.dynamic$upper,rep(0,11)))
+
+
+
+for(i in 2:12){
+  
+  if(i == 6){
+    t.oma.2009.update["2009-05-01"] <- oma.2009.dynamic.df[5, 1]
+  }
+  
+  oma.2009.fit.updated <- Arima(t.oma.2009.update[paste0("/2009-",i-1)], model = oma.2009.fit)
+  oma.2009.dynamic <- forecast(oma.2009.fit.updated, h = 1, level = 95)
+  
+  oma.2009.dynamic.df[i, 1] <- as.numeric(oma.2009.dynamic$mean)
+  oma.2009.dynamic.df[i, 3] <- oma.2009.dynamic$upper
+  oma.2009.dynamic.df[i, 2] <- oma.2009.dynamic$lower
+  
+}
+
+
+oma.2009.dynamic.df <- (oma.2009.dynamic.df^(1/lambda))*c_lambda[1] 
+
+oma.2009.dynamic.df <- cbind(index(oma.2009.basis), oma.2009.dynamic.df, coredata(oma.2009.basis))
+
+names(oma.2009.dynamic.df) <- c("date", "pred", "lower", "upper", "pax")
+
+ggplot(oma.2009.dynamic.df) +
+  geom_line(aes(x = date, y = pred), color = "#E2A206", size = 1.1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, x = date), alpha = 0.2, fill = "#E2A206") +
+  geom_line(aes(x = date, y = pax), color = "#067DE2", size = 1.1) +
+  geom_text(aes(x = as.Date("2009-02-01"), y = 1300000, label = "Forecast"), color = "#E2A206", size = 3) +
+  geom_text(aes(x = as.Date("2009-02-01"), y = 1250000, label = "Observed"), color = "#067DE2", size = 3) +
+  labs(x = "Date", y = "Passengers", title = "") +
+  theme(panel.background = element_rect(fill = "whitesmoke"),
+        axis.text = element_text(size = 8))
+```
+
+
+```{r, echo = F, warning = F}
+
+pred.df.3 <- read_excel(path = paste0(path2,"/pred2.xlsx"))
+pred.df.3[,-c(1,6,7)] <- round(pred.df.3[,-c(1,6,7)], digits = 0) 
+pred.df.3[,c(6,7)] <- round(pred.df.3[,c(6,7)], digits = 2)
+pred.df.3[-13,1] <- as.character(index(oma.2009.basis))
+
+#names_spaced = c("Date", "Base case \\\ scenario", "Best case \\\ scenario", "Worst case \\\ scenario",
+                 #"Observed", "Base case \\\ vs observed", "Worst case \\\ vs observed")
+
+kable(pred.df.3, "latex", booktabs = T, caption = "Forecast summary", escape = F, align = 'c', linesep = "") %>% 
+       column_spec(c(1:7), width = "6em") %>%
+      kable_styling(latex_options = c("hold_position", "scale_down"))
+
+```
